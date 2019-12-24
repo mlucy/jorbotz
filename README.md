@@ -1,6 +1,8 @@
 # jorbotz
 A Slay the Spire card picker trained on Jorbs runs
 
+Working on 1556933650.run
+
 ```
 [u'is_daily',
  u'current_hp_per_floor',
