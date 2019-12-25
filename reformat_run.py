@@ -5,20 +5,10 @@ from pprint import pprint
 
 # TODO: add support for relics so that we can handle frozen egg properly.
 
-CARDS = {
-    'IRONCLAD': {
-        'POWERS': ['Inflame'],
-        'ATTACKS': [],
-        'SKILLS': [],
-        'OTHER': [],
-    },
-}
-for cls in CARDS:
-    for typ in CARDS[cls]:
-        CARDS[cls][typ] += [x+'+1' for x in CARDS[cls][typ]]
-
+with open('data/cleaned/cards.json', 'r') as f:
+    CARDS = json.load(f)
 STARTING_DECKS = {
-    'IRONCLAD': {'Strike_R': 5, 'Defend_R': 4, 'Bash': 1},
+    'IRONCLAD': {'Strike': 5, 'Defend': 4, 'Bash': 1},
 }
 
 def calc_state_by_floor(data):
