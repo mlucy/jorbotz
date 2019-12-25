@@ -234,7 +234,7 @@ def calc_state_by_floor(data):
         all_card_names = list(set(master_deck.keys()).union(set(calculated_deck.keys())))
         all_card_names.sort(reverse=True)
         for cname in all_card_names:
-            print(cname)
+            # print(cname)
             master_count = master_deck.get(cname, 0)
             calculated_count = calculated_deck.get(cname, 0)
             if master_count != calculated_count:
