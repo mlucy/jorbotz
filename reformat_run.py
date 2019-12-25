@@ -50,9 +50,13 @@ for x in CARDS:
         CARDS[x][y] += [z+'+1' for z in CARDS[x][y]]
 STARTING_DECKS = {
     'IRONCLAD': {'Strike': 5, 'Defend': 4, 'Bash': 1},
+    'SILENT': {'Strike': 5, 'Defend': 5, 'Survivor': 1, 'Neutralize': 1},
+    'DEFECT': {'Strike': 4, 'Defend': 4, 'Zap': 1, 'Dualcast': 1},
 }
 STARTING_RELICS = {
     'IRONCLAD': set(['Burning Blood']),
+    'SILENT': set(['Ring of the Snake']),
+    'DEFECT': set(['Cracked Core']),
 }
 ALL_CARDS = set()
 for x in CARDS:
@@ -209,13 +213,13 @@ def calc_state_by_floor(data):
     master_relics = set(data['relics'])
     calculated_relics = floor_state[-1]['relics']
     if master_relics != calculated_relics:
-        for rname in master_relics:
+        for rname in list(master_relics):
             if rname not in calculated_relics:
                 assert(valid_neow_relic_add(data))
                 print('NEOW_BONUS RELIC ADD %s: %s' % (data['neow_bonus'], rname))
                 for state in floor_state:
                     state['relics'].add(rname)
-        for rname in calculated_relics:
+        for rname in list(calculated_relics):
             if rname not in master_relics:
                 assert(valid_neow_relic_del(data, rname))
                 print('NEOW_BONUS RELIC DEL %s: %s' % (data['neow_bonus'], rname))
@@ -235,7 +239,4 @@ def reformat(data):
 for i in range(1, len(sys.argv)):
     with open(sys.argv[i], 'r') as f:
         data = json.load(f)
-        if data['character_chosen'] != 'IRONCLAD':
-            print('Only IRONCLAD supported (got %s).' % data['character_chosen'])
-            exit(1)
         reformat(data)
