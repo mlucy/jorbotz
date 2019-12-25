@@ -8,6 +8,41 @@ from pprint import pprint
 
 # TODO: add support for relics so that we can handle frozen egg properly.
 
+CARD_GRANTING_NEOW_BONUSES = [
+    'ONE_RANDOM_RARE_CARD', 'THREE_RARE_CARDS', 'THREE_CARDS', 'TRANSFORM_CARD', 'UPGRADE_CARD',
+]
+
+CARD_REMOVING_NEOW_BONUSES = [
+    'REMOVE_CARD', 'REMOVE_TWO', 'TRANSFORM_CARD', 'UPGRADE_CARD',
+]
+
+RELIC_GRANTING_NEOW_BONUSES = [
+    'BOSS_RELIC', 'ONE_RARE_RELIC', 'RANDOM_COMMON_RELIC',
+]
+
+RELIC_REMOVING_NEOW_BONUSES = [
+    'BOSS_RELIC'
+]
+
+def valid_neow_add(data, cname):
+    return ((data['neow_bonus'] in CARD_GRANTING_NEOW_BONUSES) or
+            (data['neow_cost'] == 'CURSE' and is_type(cname, 'Curse')))
+
+def valid_neow_del(data, cname):
+    return data['neow_bonus'] in CARD_REMOVING_NEOW_BONUSES
+
+def valid_neow_relic_add(data):
+    return data['neow_bonus'] in RELIC_GRANTING_NEOW_BONUSES
+
+def valid_neow_relic_del(data, rname):
+    return ((data['neow_bonus'] in RELIC_REMOVING_NEOW_BONUSES) and
+            (rname in STARTING_RELICS[data['character_chosen']]))
+
+def note_card(state, cname, diff):
+    if cname not in state['deck']:
+        state['deck'][cname] = 0
+    state['deck'][cname] += diff
+
 with open('data/cleaned/cards.json', 'r') as f:
     CARDS = json.load(f)
 for x in CARDS:
@@ -110,6 +145,11 @@ def calc_state_by_floor(data):
                 assert(rname not in new_state['relics'])
                 new_state['relics'].add(rname)
             elif diff == -1:
+                # We might be removing a relic we got from the Neow bonus.
+                if rname not in new_state['relics']:
+                    assert(valid_neow_relic_add(data))
+                    for state in floor_state + [new_state]:
+                        state['relics'].add(rname)
                 assert(rname in new_state['relics'])
                 new_state['relics'].remove(rname)
             else:
@@ -121,9 +161,12 @@ def calc_state_by_floor(data):
                 ('Molten Egg 2' in new_state['relics'] and is_type(cname, 'Attack'))): 
                 if cname[-2:] != '+1':
                     cname += '+1'
-            if cname not in new_state['deck']:
-                new_state['deck'][cname] = 0
-            new_state['deck'][cname] += diff
+            note_card(new_state, cname, diff)
+            # We might have been given a card during our neow bonus.
+            if new_state['deck'][cname] < 0:
+                assert(valid_neow_add(data, cname))
+                for state in floor_state + [new_state]:
+                    note_card(state, cname, 1)
             assert(new_state['deck'][cname] >= 0)
             if new_state['deck'][cname] == 0:
                 del new_state['deck'][cname]
@@ -138,19 +181,54 @@ def calc_state_by_floor(data):
         if cname not in master_deck:
             master_deck[cname] = 0
         master_deck[cname] += 1
+    calculated_deck = floor_state[-1]['deck']
     # pprint(master_deck)
-    # pprint(floor_state[-1]['deck'])
-    assert(master_deck == floor_state[-1]['deck'])
+    # pprint(calculated_deck)
+    if master_deck != calculated_deck:
+        all_card_names = set(master_deck.keys()).union(set(calculated_deck.keys()))
+        for cname in all_card_names:
+            master_count = master_deck.get(cname, 0)
+            calculated_count = calculated_deck.get(cname, 0)
+            if master_count != calculated_count:
+                if master_count > calculated_count:
+                    assert(valid_neow_add(data, cname))
+                else:
+                    assert(valid_neow_del(data, cname))
+                print('NEOW_BONUS %s: %s %s' % (
+                    data['neow_bonus'], cname, (master_count - calculated_count)))
+                for state in floor_state:
+                    note_card(state, cname, (master_count - calculated_count))
+                    assert(state['deck'][cname] >= 0)
+                    if state['deck'][cname] == 0:
+                        del state['deck'][cname]
+
+    assert(master_deck == calculated_deck)
 
     # pprint(set(data['relics']))
     # pprint(floor_state[-1]['relics'])
-    assert(set(data['relics']) == floor_state[-1]['relics'])
+    master_relics = set(data['relics'])
+    calculated_relics = floor_state[-1]['relics']
+    if master_relics != calculated_relics:
+        for rname in master_relics:
+            if rname not in calculated_relics:
+                assert(valid_neow_relic_add(data))
+                print('NEOW_BONUS RELIC ADD %s: %s' % (data['neow_bonus'], rname))
+                for state in floor_state:
+                    state['relics'].add(rname)
+        for rname in calculated_relics:
+            if rname not in master_relics:
+                assert(valid_neow_relic_del(data, rname))
+                print('NEOW_BONUS RELIC DEL %s: %s' % (data['neow_bonus'], rname))
+                for state in floor_state:
+                    state['relics'].remove(rname)
+    assert(master_relics == calculated_relics)
 
     # pprint(list(zip(range(100), floor_state)))
-    exit(1)
+    return floor_state
 
 def reformat(data):
-    state_by_floor = calc_state_by_floor(data)
+    floor_state = calc_state_by_floor(data)
+    pprint(list(zip(range(100), floor_state)))
     card_choices = data['card_choices']
     # pprint(card_choices)
 
