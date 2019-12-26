@@ -554,6 +554,29 @@ def calc_state_by_floor(data):
     # pprint(list(zip(range(100), floor_state)))
     return floor_state
 
+def formatted_output(data, state, floor, extra={}):
+    boss = None
+
+    for fight in data['damage_taken']:
+        if fight['floor'] == 16 and floor <= 16:
+            boss = fight['enemies']
+        if fight['floor'] == 33 and floor > 16 and floor <= 33:
+            boss = fight['enemies']
+        if fight['floor'] == 50 and floor > 33 and floor <= 50:
+            boss = fight['enemies']
+
+    formatted_output = {
+        'class': data['character_chosen'],
+        'floor': floor,
+        'deck': state['deck'],
+        'relics': state['relics'],
+        'gold': data['gold_per_floor'][floor],
+        'hp': data['current_hp_per_floor'][floor],
+        'max_hp': data['max_hp_per_floor'][floor],
+        'boss': boss,
+    }
+    return {**formatted_output, **extra}
+
 def reformat(data, filename):
     floor_state = calc_state_by_floor(data)
     # pprint(list(zip(range(100), floor_state)))
@@ -563,33 +586,39 @@ def reformat(data, filename):
     with open('processed/winrate/'+filename, 'w') as o:
         output_array = []
         for i, state in zip(range(56), floor_state):
-            formatted_output = {
-                'deck': state['deck'],
-                'relics': state['relics'],
-                'gold': data['gold_per_floor'][i],
-                'hp': data['current_hp_per_floor'][i],
-                'won': won,
-            }
-            output_array.append(formatted_output)
+            output_array.append(
+                formatted_output(
+                    data,
+                    state,
+                    i,
+                    {
+                        'won': won,
+                    },
+                )
+            )
         o.write(pformat(output_array))
 
     with open('processed/cardchoice/'+filename, 'w') as o:
         output_array = []
         for card_choice in card_choices:
             floor = card_choice['floor']
+            state = floor_state[floor]
             not_picked = [tr(name) for name in card_choice['not_picked']]
             picked = tr(card_choice['picked'])
             choices = [picked] + not_picked
             choices.sort()
-            formatted_output = {
-                'deck': state['deck'],
-                'relics': state['relics'],
-                'gold': data['gold_per_floor'][i],
-                'hp': data['current_hp_per_floor'][i],
-                'choices': choices,
-                'picked': picked
-            }
-            output_array.append(formatted_output)
+
+            output_array.append(
+                formatted_output(
+                    data,
+                    floor_state[floor],
+                    floor,
+                    {
+                        'choices': choices,
+                        'picked': picked,
+                    }
+                )
+            )
         o.write(pformat(output_array))
 
     # pprint(card_choices)
