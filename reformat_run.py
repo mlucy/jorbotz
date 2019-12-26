@@ -8,14 +8,6 @@ from pprint import pprint
 
 # TODO: add support for relics so that we can handle frozen egg properly.
 
-CARD_GRANTING_NEOW_BONUSES = [
-    'ONE_RANDOM_RARE_CARD', 'THREE_RARE_CARDS', 'THREE_CARDS', 'TRANSFORM_CARD', 'UPGRADE_CARD',
-]
-
-CARD_REMOVING_NEOW_BONUSES = [
-    'REMOVE_CARD', 'REMOVE_TWO', 'TRANSFORM_CARD', 'UPGRADE_CARD',
-]
-
 RELIC_GRANTING_NEOW_BONUSES = [
     'BOSS_RELIC', 'ONE_RARE_RELIC', 'RANDOM_COMMON_RELIC',
 ]
@@ -24,13 +16,6 @@ RELIC_REMOVING_NEOW_BONUSES = [
     'BOSS_RELIC'
 ]
 
-def valid_neow_add(data, cname):
-    return ((data['neow_bonus'] in CARD_GRANTING_NEOW_BONUSES) or
-            (data['neow_cost'] == 'CURSE' and is_type(cname, 'Curse')))
-
-def valid_neow_del(data, cname):
-    return data['neow_bonus'] in CARD_REMOVING_NEOW_BONUSES
-
 def valid_neow_relic_add(data):
     return data['neow_bonus'] in RELIC_GRANTING_NEOW_BONUSES
 
@@ -38,23 +23,10 @@ def valid_neow_relic_del(data, rname):
     return ((data['neow_bonus'] in RELIC_REMOVING_NEOW_BONUSES) and
             (rname in STARTING_RELICS[data['character_chosen']]))
 
-def valid_relic_upgrade(data, states, cname):
-    floor = old_cname = None
-    if cname[-2:] == '+1':
-        old_cname = cname[:-2]
-        if is_type(cname, 'Skill'):
-            upgrades = states[-1]['scratch'].get('war_paint_upgrades', 0)
-            if upgrades > 0:
-                floor = states[-1]['scratch']['war_paint_floor']
-                states[-1]['scratch']['war_paint_upgrades'] = upgrades-1
-        if is_type(cname, 'Attack'):
-            upgrades = states[-1]['scratch'].get('whetstone_upgrades', 0)
-            if upgrades > 0:
-                states[-1]['scratch']['whetstone_upgrades'] = upgrades-1
-                floor = states[-1]['scratch']['whetstone_floor']
-    if states[floor]['deck'].get(old_cname, 0) == 0:
-        floor = old_cname = None
-    return floor, old_cname
+def note_card_raw(state, cname, diff):
+    if cname not in state['deck']:
+        state['deck'][cname] = 0
+    state['deck'][cname] += diff
 
 def note_card(state, cname, diff):
     if 'Omamori' in state['relics'] and is_type(cname, 'Curse'):
@@ -62,10 +34,152 @@ def note_card(state, cname, diff):
         if uses < 2:
             state['scratch']['omamori_uses'] = uses + 1
             return False
-    if cname not in state['deck']:
-        state['deck'][cname] = 0
-    state['deck'][cname] += diff
+    note_card_raw(state, cname, diff)
     return True
+
+def update_from_floor(states, floor, diffs, cb=None):
+    for state in states[floor:]:
+        for cname in diffs:
+            note_card_raw(state, cname, diffs[cname])
+        if cb:
+            cb(state)
+
+# Assume that we only pass in the upgraded ones
+def patch_card_upgrade_relics(date, states, required_diffs):
+    last_state = states[-1]
+    for cname in required_diffs:
+        floor = None
+        scratch_name = None
+        if cname[-2:] == '+1' and required_diffs[cname] > 0:
+            old_cname = cname[:-2]
+            if required_diffs.get(old_cname, 0) < 0:
+                if is_type(cname, 'Skill'):
+                    scratch_name = 'war_paint'
+                elif is_type(cname, 'Attack'):
+                    scratch_name='whetstone'
+                else:
+                    continue
+                upgrades = last_state['scratch'].get(scratch_name+'_upgrades', 0)
+                if upgrades > 0:
+                    floor = last_state['scratch'][scratch_name+'_floor']
+                    if old_cname not in states[floor]['deck']:
+                        continue
+                    def f(state):
+                        state['scratch'][scratch_name+'_upgrades'] -= 1
+                    update_from_floor(states, floor, {old_cname: -1, cname: 1}, cb=f)
+                    print('Upgrade %s from %s on floor %s.' % (old_cname, scratch_name, floor))
+                    required_diffs[old_cname] += 1
+                    required_diffs[cname] -= 1
+                    return True
+    return False
+
+def patch_card_neow_cost_raw(data, states, required_diffs):
+    cost = data['neow_cost']
+    if cost == 'CURSE':
+        for cname in requird_diffs:
+            if is_type(cname, 'Curse') and required_diffs[cname] > 0:
+                print('Neow curse %s on floor 0.' % cname)
+                update_from_floor(states, 0, {cname: 1})
+                return True
+    return False
+
+def patch_card_neow_bonus_raw(data, states, required_diffs):
+    bonus = data['neow_bonus']
+    if bonus in ['ONE_RANDOM_RARE_CARD', 'THREE_RARE_CARDS', 'THREE_CARDS']:
+        for cname in required_diffs:
+            if required_diffs[cname] > 0:
+                print('Neow card %s on floor 0.' % cname)
+                update_from_floor(states, 0, {cname: 1})
+                return True
+    if bonus == 'UPGRADE_CARD':
+        for cname in required_diffs:
+            if cname[-2:] == '+1' and required_diffs[cname] > 0:
+                old_cname = cname[:-2]
+                if old_cname in states[0]['deck']:
+                    if required_diffs.get(old_cname, 0) < 0:
+                        print('Neow upgrade %s on floor 0.' % old_cname)
+                        update_from_floor(states, 0, {old_cname: -1, cname: 1})
+                        return True
+    if bonus == 'REMOVE_CARD':
+        for cname in required_diffs:
+            if cname in states[0]['deck'] and required_diffs[cname] < 0:
+                update_from_floor(states, 0, {cname: -1})
+                return True
+    if bonus == 'REMOVE_TWO':
+        removal_candidates = []
+        for cname in required_diffs:
+            if cname in states[0]['deck']:
+                if required_diffs[cname] < -1:
+                    print('Neow remove 2x %s on floor 0.' % cname)
+                    update_from_floor(states, 0, {cname: -2})
+                    return True
+                elif required_diffs[cname] < 0:
+                    removal_candidates.append(cname)
+                    if len(removal_candidates) == 2:
+                        print('Neow remove %s on floor 0.' % removal_candidates)
+                        update_from_floor(states, 0, {
+                            removal_candidates[0]: -1,
+                            removal_candidates[1]: -1,
+                        })
+                        return True
+    return False
+
+def patch_card_neow(data, states, required_diffs):
+    if states[-1]['scratch'].get('neow_bonus_available', True):
+        if patch_card_neow_bonus_raw(data, states, required_diffs):
+            states[-1]['scratch']['neow_bonus_available'] = False
+            return True
+    if states[-1]['scratch'].get('neow_cost_available', True):
+        if patch_card_neow_cost_raw(data, states, required_diffs):
+            states[-1]['scratch']['neow_cost_available'] = False
+            return True
+    return False
+
+def patch_card_neow_liberal_raw(data, states, required_diffs):
+    bonus = data['neow_bonus']
+    lost_card = None
+    gained_card = None
+    if bonus == 'TRANSFORM_CARD':
+        for cname in required_diffs:
+            if required_diffs[cname] < 0:
+                if cname in states[0]['deck']:
+                    if lost_card is not None:
+                        lost_card = cname
+            elif required_diffs[cname] > 0:
+                gained_card = cname
+            if lost_card and gained_card:
+                print('Neow transform %s -> %s.' % (lost_card, gained_card))
+                update_from_floor(states, 0, {lost_card: -1, gained_card: 1})
+                return True
+    return False
+
+# TRANSFORM_CARD is so easy to satisfy that we put it separately in
+# the precedence.
+def patch_card_neow_liberal(data, states, required_diffs):
+    if states[-1]['scratch'].get('neow_bonus_available', True):
+        if patch_card_neow_liberal_raw(data, states, required_diffs):
+            states[-1]['scratch']['neow_bonus_available'] = False
+            return True
+    return False
+
+# TODO
+def patch_empty_cage(*a):
+    return False
+
+def patch_card_history(data, states, required_diffs):
+    precedence = [
+        patch_card_upgrade_relics,
+        patch_card_neow,
+        patch_empty_cage,
+        patch_card_neow_liberal,
+    ]
+    found = True
+    while found:
+        found = False
+        for f in precedence:
+            if f(data, states, required_diffs):
+                found = True
+                break
 
 with open('data/cleaned/cards.json', 'r') as f:
     CARDS = json.load(f)
@@ -200,20 +314,6 @@ def calc_state_by_floor(data):
                 if cname[-2:] != '+1':
                     cname += '+1'
             if note_card(new_state, cname, diff):
-                # We might have been given a card during our neow bonus.
-                if new_state['deck'][cname] < 0:
-                    # TODO: this might be incorrect if the neow bonus is also in play.
-                    upgrade_floor, old_cname = valid_relic_upgrade(
-                        data, floor_state + [new_state], cname)
-                    if upgrade_floor is not None:
-                        for state in floor_state[upgrade_floor:] + [new_state]:
-                            note_card(state, old_cname, -1)
-                            note_card(state, cname, 1)
-                    else:
-                        assert(valid_neow_add(data, cname))
-                        for state in floor_state + [new_state]:
-                            note_card(state, cname, 1)
-                assert(new_state['deck'][cname] >= 0)
                 if new_state['deck'][cname] == 0:
                     del new_state['deck'][cname]
 
@@ -230,37 +330,19 @@ def calc_state_by_floor(data):
     calculated_deck = floor_state[-1]['deck']
     # pprint(master_deck)
     # pprint(calculated_deck)
-    if master_deck != calculated_deck:
-        all_card_names = list(set(master_deck.keys()).union(set(calculated_deck.keys())))
-        all_card_names.sort(reverse=True)
-        for cname in all_card_names:
-            # print(cname)
-            master_count = master_deck.get(cname, 0)
-            calculated_count = calculated_deck.get(cname, 0)
-            if master_count != calculated_count:
-                print(cname, master_deck, calculated_deck, data['neow_bonus'], data['neow_cost'])
-                if master_count > calculated_count:
-                    if cname[-2:] == '+1':
-                        if ((master_deck.get(cname, 0) - calculated_deck.get(cname, 0)) ==
-                            (calculated_deck.get(cname[:-2], 0) - master_deck.get(cname[:-2], 0))):
-                            upgrade_floor, old_cname = valid_relic_upgrade(data, floor_state, cname)
-                            if upgrade_floor is not None:
-                                for state in floor_state[upgrade_floor:]:
-                                    diff = master_count - calculated_count
-                                    note_card(state, old_cname, -1*diff)
-                                    note_card(state, cname, diff)
-                                continue
-                    assert(valid_neow_add(data, cname))
-                else:
-                    assert(valid_neow_del(data, cname))
-                print('NEOW_BONUS %s: %s %s' % (
-                    data['neow_bonus'], cname, (master_count - calculated_count)))
-                for state in floor_state:
-                    note_card(state, cname, (master_count - calculated_count))
-                    assert(state['deck'][cname] >= 0)
-                    if state['deck'][cname] == 0:
-                        del state['deck'][cname]
-
+    all_card_names = list(set(master_deck.keys()).union(set(calculated_deck.keys())))
+    required_diffs = {}
+    for cname in all_card_names:
+        req = master_deck.get(cname, 0) - calculated_deck.get(cname, 0)
+        if req != 0:
+            required_diffs[cname] = req
+    patch_card_history(data, floor_state, required_diffs)
+    for cname in required_diffs:
+        if required_diffs[cname] != 0:
+            print('Failed to resolve diffs.')
+            pprint(master_deck)
+            pprint(calculated_deck)
+            pprint(required_diffs)
     assert(master_deck == calculated_deck)
 
     # pprint(set(data['relics']))
