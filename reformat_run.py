@@ -585,7 +585,7 @@ def reformat(data, filename):
 
     with open('processed/winrate/'+filename, 'w') as o:
         output_array = []
-        for i, state in zip(range(56), floor_state):
+        for i, state in zip(range(min(len(floor_state)-1, 56)), floor_state):
             output_array.append(
                 formatted_output(
                     data,
@@ -596,7 +596,7 @@ def reformat(data, filename):
                     },
                 )
             )
-        o.write(pformat(output_array))
+        json.dump(output_array, o)
 
     with open('processed/cardchoice/'+filename, 'w') as o:
         output_array = []
@@ -619,7 +619,7 @@ def reformat(data, filename):
                     }
                 )
             )
-        o.write(pformat(output_array))
+        json.dump(output_array, o)
 
     # pprint(card_choices)
 

@@ -40,9 +40,9 @@ def deck_to_vector(deck):
     return out_vec
 
 def relics_to_vector(relics):
-    out_vec = np.zeros(len(ALL_RELICS)):
+    out_vec = np.zeros(len(ALL_RELICS))
     for relic in relics:
-        out_vec[CARD_INDEX_MAP[relic]] += 1
+        out_vec[RELIC_INDEX_MAP[relic]] += 1
     return out_vec
 
 NUMERIC_FEATURES = ['gold', 'hp', 'max_hp', 'floor']
@@ -61,8 +61,8 @@ def numeric_vector(num):
 
 def choice_vector(field, choice):
     out_vec = np.zeros(len(CHOICE_FEATURES[field]))
-    if choice in CHOICE_INDEX_MAP[field]:
-        out_vec[CHOICE_INDEX_MAP[field][choice]] += 1
+    if choice in CHOICE_INDEX_MAPS[field]:
+        out_vec[CHOICE_INDEX_MAPS[field][choice]] += 1
     return out_vec
 
 def obj_to_vector(obj):
@@ -72,6 +72,21 @@ def obj_to_vector(obj):
     for feature in NUMERIC_FEATURES:
         all_vecs.append(numeric_vector(obj.get(feature, 0)))
     for feature in CHOICE_FEATURES:
-        all_vecs.append(choice_vector(obj.get(feature, None)))
+        all_vecs.append(choice_vector(feature, obj.get(feature, None)))
+    print(all_vecs)
     return np.concatenate(all_vecs)
 
+def obj_to_class(obj):
+    if obj['won']:
+        return 1
+    return 0
+
+obj_to_vector({'boss': 'Slime Boss',
+  'class': 'IRONCLAD',
+  'deck': {'Bash': 1, 'Defend': 4, 'Strike': 5},
+  'floor': 0,
+  'gold': 119,
+  'hp': 70,
+  'max_hp': 75,
+  'relics': {'Burning Blood'},
+  'won': True})
