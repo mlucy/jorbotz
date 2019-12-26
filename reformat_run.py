@@ -569,7 +569,7 @@ def formatted_output(data, state, floor, extra={}):
         'class': data['character_chosen'],
         'floor': floor,
         'deck': state['deck'],
-        'relics': state['relics'],
+        'relics': list(state['relics']),
         'gold': data['gold_per_floor'][floor],
         'hp': data['current_hp_per_floor'][floor],
         'max_hp': data['max_hp_per_floor'][floor],

@@ -1,6 +1,8 @@
 import json
 import csv
 import numpy as np
+import sys
+from os import path
 
 with open('data/cleaned/cards.json', 'r') as f:
     CARDS = json.load(f)
@@ -26,8 +28,8 @@ CARD_INDEX_MAP = {}
 for i, cname in zip(range(len(ALL_CARDS)), ALL_CARDS):
     CARD_INDEX_MAP[cname] = i
 
-print(len(ALL_CARDS))
-print(len(ALL_RELICS))
+# print(len(ALL_CARDS))
+# print(len(ALL_RELICS))
 
 def deck_to_vector(deck):
     out_vec = np.zeros(len(ALL_CARDS))
@@ -48,7 +50,8 @@ def relics_to_vector(relics):
 NUMERIC_FEATURES = ['gold', 'hp', 'max_hp', 'floor']
 CHOICE_FEATURES = {
     'class': ['IRONCLAD', 'THE_SILENT', 'DEFECT'],
-    'boss': ['Slime Boss'] + ['foo']*15,
+    'boss': ['Automaton', 'Awakened One', 'Champ', 'Collector',
+             'Donu and Deca', 'Hexaghost', 'Slime Boss', 'The Guardian', 'Time Eater']
 }
 CHOICE_INDEX_MAPS = {}
 for k in CHOICE_FEATURES:
@@ -73,7 +76,6 @@ def obj_to_vector(obj):
         all_vecs.append(numeric_vector(obj.get(feature, 0)))
     for feature in CHOICE_FEATURES:
         all_vecs.append(choice_vector(feature, obj.get(feature, None)))
-    print(all_vecs)
     return np.concatenate(all_vecs)
 
 def obj_to_class(obj):
@@ -81,12 +83,17 @@ def obj_to_class(obj):
         return 1
     return 0
 
-obj_to_vector({'boss': 'Slime Boss',
-  'class': 'IRONCLAD',
-  'deck': {'Bash': 1, 'Defend': 4, 'Strike': 5},
-  'floor': 0,
-  'gold': 119,
-  'hp': 70,
-  'max_hp': 75,
-  'relics': {'Burning Blood'},
-  'won': True})
+def dump_test_cases_from_filename(filename):
+    if path.isfile(filename + '.cases'):
+        return
+    print(filename)
+    test_cases = []
+    with open(filename, 'r') as f:
+        objs = json.load(f)
+        for obj in objs:
+            test_cases.append((list(obj_to_vector(obj)), obj_to_class(obj)))
+    with open(filename + '.cases', 'w') as f:
+        json.dump(test_cases, f)
+
+for i in range(1, len(sys.argv)):
+    dump_test_cases_from_filename(sys.argv[i])

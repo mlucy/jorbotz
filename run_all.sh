@@ -1,4 +1,4 @@
-set -eu
+# set -eu
 
 for i in formatted/*; do
     echo $i
