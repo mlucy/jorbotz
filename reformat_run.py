@@ -6,22 +6,15 @@ import sys
 
 from pprint import pprint
 
-# TODO: add support for relics so that we can handle frozen egg properly.
-
-RELIC_GRANTING_NEOW_BONUSES = [
-    'BOSS_RELIC', 'ONE_RARE_RELIC', 'RANDOM_COMMON_RELIC', 'THREE_ENEMY_KILL'
+SILLY_POTION_NAMES = [
+    'EssenceOfSteel',
+    'GamblersBrew',
+    'EntropicBrew',
+    'LiquidBronze',
+    'GhostInAJar',
+    'Fruit Juice',
+    'SmokeBomb'
 ]
-
-RELIC_REMOVING_NEOW_BONUSES = [
-    'BOSS_RELIC'
-]
-
-def valid_neow_relic_add(data):
-    return data['neow_bonus'] in RELIC_GRANTING_NEOW_BONUSES
-
-def valid_neow_relic_del(data, rname):
-    return ((data['neow_bonus'] in RELIC_REMOVING_NEOW_BONUSES) and
-            (rname in STARTING_RELICS[data['character_chosen']]))
 
 def note_card_raw(state, cname, diff):
     if cname not in state['deck']:
@@ -31,7 +24,7 @@ def note_card_raw(state, cname, diff):
         del state['deck'][cname]
 
 def note_card(state, cname, diff):
-    if 'Omamori' in state['relics'] and is_type(cname, 'Curse'):
+    if 'Omamori' in state['relics'] and is_type(cname, 'Curse') and diff > 0:
         uses = state['scratch'].get('omamori_uses', 0)
         if uses < 2:
             state['scratch']['omamori_uses'] = uses + 1
@@ -81,7 +74,7 @@ def patch_card_upgrade_relics(date, states, required_diffs):
 def patch_card_neow_cost_raw(data, states, required_diffs):
     cost = data['neow_cost']
     if cost == 'CURSE':
-        for cname in requird_diffs:
+        for cname in required_diffs:
             if is_type(cname, 'Curse') and required_diffs[cname] > 0:
                 print('Neow curse %s on floor 0.' % cname)
                 update_from_floor(states, 0, required_diffs, {cname: 1})
@@ -129,6 +122,49 @@ def patch_card_neow_bonus_raw(data, states, required_diffs):
                         return True
     return False
 
+def patch_astrolabe(data, states, required_diffs):
+    astrolabe_floor = states[-1]['scratch'].get('astrolabe_floor', None)
+    if astrolabe_floor is None:
+        return False
+
+    upgrade_candidates = []
+    removal_candidates = []
+
+
+    for cname in required_diffs:
+        if (cname[-2:] == '+1' and
+            required_diffs[cname] > 0):
+            upgrade_candidates += [cname] * required_diffs[cname]
+
+        elif (cname in states[astrolabe_floor]['deck'] and
+              required_diffs[cname] < 0):
+            removal_candidates += [cname] * (-1 * required_diffs[cname])
+
+    deduped_upgrade_candidates = list(set(upgrade_candidates))
+    if len(deduped_upgrade_candidates) >= 3:
+        upgrade_candidates = deduped_upgrade_candidates
+    upgrade_candidates = upgrade_candidates[:3]
+    removal_candidates = removal_candidates[:3]
+    if len(upgrade_candidates) == 3 and len(removal_candidates) == 3:
+        update_diffs = {}
+        for u in upgrade_candidates:
+            if u not in update_diffs:
+                update_diffs[u] = 0
+            update_diffs[u] += 1
+        for r in removal_candidates:
+            if r not in update_diffs:
+                update_diffs[r] = 0
+            update_diffs[r] -= 1
+
+        print('Astrolabe %s on floor %s' % (update_diffs, astrolabe_floor))
+        def f(state):
+            state['scratch']['astrolabe_floor'] = None
+        update_from_floor(states, astrolabe_floor, required_diffs, update_diffs, cb=f)
+
+        return True
+
+    return False
+
 def patch_card_neow(data, states, required_diffs):
     if states[-1]['scratch'].get('neow_bonus_available', True):
         if patch_card_neow_bonus_raw(data, states, required_diffs):
@@ -148,10 +184,11 @@ def patch_card_neow_liberal_raw(data, states, required_diffs):
         for cname in required_diffs:
             if required_diffs[cname] < 0:
                 if cname in states[0]['deck']:
-                    if lost_card is not None:
+                    if lost_card is None:
                         lost_card = cname
             elif required_diffs[cname] > 0:
-                gained_card = cname
+                if gained_card is None:
+                    gained_card = cname
             if lost_card and gained_card:
                 print('Neow transform %s -> %s.' % (lost_card, gained_card))
                 update_from_floor(states, 0, required_diffs, {lost_card: -1, gained_card: 1})
@@ -208,9 +245,46 @@ def patch_unupgraded_cards(data, states, required_diffs):
                         update_from_floor(states, floor, required_diffs,
                                           {card: +1, card+'+1': -1})
                         return True
+                elif required_diffs.get(card, 0) < 0:
+                    if required_diffs.get(card+'+1', 0) > 0:
+                        print('Patching upgraded cards %s on floor %s.' % (card, floor))
+                        update_from_floor(states, floor, required_diffs,
+                                          {card: -1, card+'+1': +1})
+                        return True
     return False
 
 # TODO: cursed key
+
+def patch_mirror(data, states, required_diffs):
+    mirror_floor = states[-1]['scratch'].get('mirror_floor', None)
+    if mirror_floor is not None:
+        for cname in required_diffs:
+            if (required_diffs[cname] > 0 and
+                cname in states[mirror_floor]['deck'] and
+                not is_type(cname, 'Curse')):
+                def f(state):
+                    state['scratch']['mirror_floor'] = None
+                print('Dollys Mirror adding %s on floor %s' % (cname, mirror_floor))
+                update_from_floor(states, mirror_floor, required_diffs, {cname: 1}, cb=f)
+
+                return True
+    return False
+
+def patch_tiny_house(data, states, required_diffs):
+    house_floor = states[-1]['scratch'].get('tiny_house_floor', None)
+    if house_floor is not None:
+        for cname in required_diffs:
+            if (cname[-2:] == "+1" and
+                required_diffs[cname] > 0 and
+                cname[:-2] in states[house_floor]['deck'] and
+                required_diffs.get(cname[:-2], 0) < 0 ):
+                print('Tiny House upgrading %s on floor %s' % (cname[:-2], house_floor))
+                def f(state):
+                    state['scratch']['tiny_house_floor'] = None
+                update_from_floor(states, house_floor, required_diffs,
+                                  {cname[:-2]:-1, cname:1}, cb=f)
+                return True
+    return False
 
 def patch_curse_ignorer(data, states, required_diffs):
     for cname in required_diffs:
@@ -223,6 +297,7 @@ def patch_curse_ignorer(data, states, required_diffs):
 # TODO: necronomicurse
 
 def patch_card_history(data, states, required_diffs):
+    # TODO only run patches that are required, and in order
     precedence = [
         patch_card_upgrade_relics,
         patch_unupgraded_cards,
@@ -230,6 +305,9 @@ def patch_card_history(data, states, required_diffs):
         patch_vampires,
         patch_empty_cage,
         patch_card_neow_liberal,
+        patch_tiny_house,
+        patch_astrolabe,
+        patch_mirror,
         patch_curse_ignorer,
     ]
     found = True
@@ -314,7 +392,8 @@ def calc_state_by_floor(data):
             relic_change_map[floor].append((purchase, 1))
         else:
             # TODO: potions
-            if not (re.match('(?i).*potion$', purchase) or purchase == 'EssenceOfSteel'):
+            if not (re.match('(?i).*potion$', purchase) or
+                    purchase in SILLY_POTION_NAMES):
                 print(ALL_RELICS)
                 print(purchase)
                 assert(False)
@@ -323,15 +402,27 @@ def calc_state_by_floor(data):
     for floor, purge in zip(data['items_purged_floors'], data['items_purged']):
         add_card_change(floor, purge, -1)
 
+    nloth_lost_relic = None
     vampire_floor = None
     unupgraded_name_cards = []
     unupgraded_name_floors = []
     for e in data['event_choices']:
         if e['player_choice'] == 'Became a vampire':
             vampire_floor = e['floor']
-        if e['event_name'] in ['Falling', 'Bonfire Elementals']:
+        if (e['event_name'] in ['Falling', 'Bonfire Elementals', 'Purifier'] or
+            e['player_choice'] in ['Forget', 'Upgrade and Remove']):
             unupgraded_name_cards.append(tr(e['cards_removed'][0]))
             unupgraded_name_floors.append(e['floor'])
+        if e['player_choice'] in ['Became Test Subject', 'Transformed Cards']:
+            for cname in e['cards_transformed']:
+                unupgraded_name_cards.append(tr(cname))
+                unupgraded_name_floors.append(e['floor'])
+        if e['player_choice'] in ['Copied']:
+            for cname in e['cards_obtained']:
+                unupgraded_name_cards.append(tr(cname))
+                unupgraded_name_floors.append(e['floor'])
+        if e['event_name'] == "N'loth" and e['player_choice']=='Traded Relic':
+            nloth_lost_relic = e['relics_lost'][0]
         for cname in e.get('cards_removed', []) + e.get('cards_transformed', []):
             add_card_change(e['floor'], cname, -1)
         for cname in e.get('cards_upgraded', []):
@@ -355,12 +446,32 @@ def calc_state_by_floor(data):
             'unupgraded_name_floors': unupgraded_name_floors,
         },
     }
+
+    if data['neow_bonus'] in ['ONE_RARE_RELIC', 'RANDOM_COMMON_RELIC', 'THREE_ENEMY_KILL']:
+        # Bullshit case where we never aquired a relic, but it's traded to N'loth
+        if nloth_lost_relic is None:
+            new_state['relics'].add(data['relics'][1])
+        else:
+            found_nloth_lost_relic = False
+            for floor in relic_change_map:
+                # print (nloth_lost_relic, relic_change_map[floor])
+                if (nloth_lost_relic, 1) in relic_change_map[floor]:
+                    new_state['relics'].add(data['relics'][1])
+                    found_nloth_lost_relic = True
+                    break
+            if not found_nloth_lost_relic:
+                new_state['relics'].add(nloth_lost_relic)
+
+    elif data['neow_bonus'] in ['BOSS_RELIC']:
+        new_state['relics'] = set([data['relics'][0]])
+
     for floor in range(0, data['floor_reached']+1):
         if floor_state != []:
             new_state = copy.deepcopy(floor_state[-1])
 
         for rname, diff in relic_change_map[floor]:
             if diff == 1:
+                # print(rname, new_state['relics'])
                 assert(rname not in new_state['relics'])
                 new_state['relics'].add(rname)
                 if rname == 'War Paint':
@@ -372,12 +483,19 @@ def calc_state_by_floor(data):
                 elif rname == 'Empty Cage':
                     new_state['scratch']['empty_cage_removes'] = 2
                     new_state['scratch']['empty_cage_floor'] = floor
+                elif rname == 'Tiny House':
+                    new_state['scratch']['tiny_house_floor'] = floor
+                elif rname == 'Astrolabe':
+                    new_state['scratch']['astrolabe_floor'] = floor
+                elif rname == 'DollysMirror':
+                    new_state['scratch']['mirror_floor'] = floor
+                elif rname == 'FrozenCore':
+                    new_state['relics'].remove('Cracked Core')
+                elif rname == 'Black Blood':
+                    new_state['relics'].remove('Burning Blood')
+                elif rname == 'Ring of the Serpent':
+                    new_state['relics'].remove('Ring of the Snake')
             elif diff == -1:
-                # We might be removing a relic we got from the Neow bonus.
-                if rname not in new_state['relics']:
-                    assert(valid_neow_relic_add(data))
-                    for state in floor_state + [new_state]:
-                        state['relics'].add(rname)
                 assert(rname in new_state['relics'])
                 new_state['relics'].remove(rname)
             else:
@@ -428,23 +546,9 @@ def calc_state_by_floor(data):
     # this means we need to do the relic calculation before the
     # per-floor card calculation.)
     master_relics = set(data['relics'])
-    calculated_relics = floor_state[-1]['relics']
-    if master_relics != calculated_relics:
-        for rname in list(master_relics):
-            if rname not in calculated_relics:
-                print(master_relics)
-                print('')
-                print(calculated_relics)
-                assert(valid_neow_relic_add(data))
-                print('NEOW_BONUS RELIC ADD %s: %s' % (data['neow_bonus'], rname))
-                for state in floor_state:
-                    state['relics'].add(rname)
-        for rname in list(calculated_relics):
-            if rname not in master_relics:
-                assert(valid_neow_relic_del(data, rname))
-                print('NEOW_BONUS RELIC DEL %s: %s' % (data['neow_bonus'], rname))
-                for state in floor_state:
-                    state['relics'].remove(rname)
+    calculated_relics = set(floor_state[-1]['relics'])
+
+    # print(master_relics);print(calculated_relics)
     assert(master_relics == calculated_relics)
 
     # pprint(list(zip(range(100), floor_state)))
