@@ -583,42 +583,58 @@ def reformat(data, filename):
     card_choices = data['card_choices']
     won = data['current_hp_per_floor'][-1] != 0
 
-    with open('processed/winrate/'+filename, 'w') as o:
-        output_array = []
-        for i, state in zip(range(min(len(floor_state)-1, 56)), floor_state):
-            output_array.append(
-                formatted_output(
-                    data,
-                    state,
-                    i,
-                    {
-                        'won': won,
-                    },
-                )
+    output_array = []
+    for i, state in zip(range(min(len(floor_state)-1, 56)), floor_state):
+        output_array.append(
+            formatted_output(
+                data,
+                state,
+                i,
+                {
+                    'won': won,
+                },
             )
+        )
+
+    with open('processed/winrate/'+filename, 'w') as o:
         json.dump(output_array, o)
 
-    with open('processed/cardchoice/'+filename, 'w') as o:
-        output_array = []
-        for card_choice in card_choices:
-            floor = card_choice['floor']
-            state = floor_state[floor]
-            not_picked = [tr(name) for name in card_choice['not_picked']]
-            picked = tr(card_choice['picked'])
-            choices = [picked] + not_picked
-            choices.sort()
+    output_array = []
+    for card_choice in card_choices:
+        floor = card_choice['floor']
+        state = copy.deepcopy(floor_state[floor])
+        not_picked = [tr(name) for name in card_choice['not_picked']]
+        picked = tr(card_choice['picked'])
+        choices = [picked] + not_picked
+        choices.sort()
 
-            output_array.append(
-                formatted_output(
-                    data,
-                    floor_state[floor],
-                    floor,
-                    {
-                        'choices': choices,
-                        'picked': picked,
-                    }
-                )
-            )
+        if floor > 0:
+            state['deck'] = floor_state[floor-1]['deck']
+        else:
+            if picked in state['deck']:
+                state['deck'][picked] -= 1
+
+        new_output = formatted_output(
+            data,
+            state,
+            floor,
+            {
+                'choices': choices,
+                'picked': picked,
+            }
+        )
+
+        if (len(output_array) > 0 and
+            output_array[-1]['floor'] == new_output['floor'] and
+            ([x for x in output_array[-1]['choices'] if x != 'SKIP'] ==
+             [x for x in new_output['choices'] if x != 'SKIP']) and
+            output_array[-1]['picked'] == 'SKIP'):
+            output_array[-1] = new_output
+        else:
+            output_array.append(new_output)
+
+
+    with open('processed/cardchoice/'+filename, 'w') as o:
         json.dump(output_array, o)
 
     # pprint(card_choices)

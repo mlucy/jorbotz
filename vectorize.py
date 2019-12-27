@@ -95,5 +95,6 @@ def dump_test_cases_from_filename(filename):
     with open(filename + '.cases', 'w') as f:
         json.dump(test_cases, f)
 
-for i in range(1, len(sys.argv)):
-    dump_test_cases_from_filename(sys.argv[i])
+if __name__ == "__main__":
+    for i in range(1, len(sys.argv)):
+        dump_test_cases_from_filename(sys.argv[i])
